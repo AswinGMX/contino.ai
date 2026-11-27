@@ -1,0 +1,42 @@
+# Local:  docker compose up --build            (STORAGE_MODE=local, data in ./data)
+# Cloud:  STORAGE_MODE=cloud in .env + DATABASE_URL/R2_* ; scale workers with
+#         docker compose up --scale worker=4
+services:
+  api:
+    build: { context: ., dockerfile: api/Dockerfile }
+    env_file: .env
+    environment:
+      EMBEDDED_WORKER: "false"
+      CORS_ORIGINS: http://localhost:8080
+    volumes:
+      - ./data:/srv/data
+      - ./output:/srv/output
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., dockerfile: api/Dockerfile }
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    volumes:
+      - ./data:/srv/data
+      - ./output:/srv/output
+    depends_on: [api]
+    restart: unless-stopped
+
+  web:
+    build: { context: web }
+    ports: ["8080:80"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  # Optional local Postgres for trying cloud mode's database half:
+  #   docker compose --profile db up -d postgres
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["db"]
+    environment: { POSTGRES_USER: storyboard, POSTGRES_PASSWORD: storyboard, POSTGRES_DB: storyboard }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+volumes:
+  pgdata:

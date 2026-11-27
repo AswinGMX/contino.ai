@@ -1,0 +1,92 @@
+# Script-to-Storyboard runtime configuration.
+# Secrets never go here; they live in .env. Everything in this file is safe to commit.
+
+models:
+  image: gpt-image-2.6-sunburst
+  # Replace with the text / vision models your team key allows (spec §14 open item).
+  text: gpt-5-mini
+  vision: gpt-5-mini
+
+image:
+  # Size requested from the API. If it is not 16:9, the app centre-crops to 16:9 in code.
+  # Switch to a native 16:9 size (e.g. 1792x1008) once confirmed in the API docs.
+  request_size: 1536x1024
+  aspect: [16, 9]
+  reference_size: 1024x1024     # character / location references (square, one subject)
+  draft_quality: low            # panels
+  final_quality: high           # finals (creator can switch per request)
+  output_format: png
+  # gpt-image-2.6-sunburst rejects input_fidelity; set e.g. `high` only for models that accept it.
+  input_fidelity: null
+  sheet_max_per_image: 8        # expression sheet: emotions drawn per image (4x2 grid)
+  review_max_side: 768          # downscale panels sent to the vision reviewer
+  # Cost control: references attached to image requests are downscaled first
+  # (image input tokens grow with size). Drafts can be small; finals keep more detail.
+  ref_max_side_draft: 512
+  ref_max_side_final: 768
+  compact_draft_refs: true      # draft panels: send the reaction image instead of base + reaction
+  # Fixes for anatomy / small-object / character-detail problems: low quality can't render fine detail
+  # (e.g. six thin insect legs), so these fixes use medium. Other fixes stay at draft quality.
+  fix_quality_detail: medium
+  # Stream image calls so the connection is never idle (networks / proxies drop silent
+  # connections after ~60 s; high-quality finals can take longer). One partial preview
+  # keeps bytes flowing; it adds ~100 output tokens (~$0.003) per image.
+  stream: true
+  partial_images: 1
+
+review:
+  weights:                      # must sum to 100
+    character: 30               # right people, matching their references
+    quality: 20                 # anatomy, hands, limb count, duplicated/floating objects, artifacts
+    background: 15
+    emotion: 15
+    continuity: 10
+    framing: 10
+  pass_overall: 80
+  pass_min:
+    character: 7
+    quality: 7
+
+budget:
+  limit_usd: 50.0
+  warn_ratio: 0.8
+  # Upper-bound cost reserved before a call; settled to the real cost afterwards.
+  reserve_usd:
+    text: 0.05
+    vision: 0.08
+    image_low: 0.15
+    image_high: 0.60
+
+# USD per 1M tokens.
+pricing:
+  gpt-image-2.6-sunburst:
+    text_input: 5.00
+    text_input_cached: 1.25
+    image_input: 8.00
+    image_input_cached: 2.00
+    image_output: 30.00
+    text_output: 30.00
+  gpt-5-mini:
+    text_input: 0.25
+    text_input_cached: 0.025
+    image_input: 0.25
+    image_input_cached: 0.025
+    text_output: 2.00
+    image_output: 0.0
+  default:
+    text_input: 5.00
+    text_input_cached: 1.25
+    image_input: 8.00
+    image_input_cached: 2.00
+    text_output: 30.00
+    image_output: 30.00
+
+retries:
+  max_attempts: 3               # 1 call + 2 automatic retries, then hand to a person
+  backoff_seconds: [5, 20]       # wait before retry 1 and retry 2
+
+jobs:
+  workers: 6                    # concurrent jobs per worker process
+  image_concurrency: 4          # concurrent image calls per process (rate-limit friendly)
+  poll_interval_seconds: 0.5
+  lease_seconds: 600            # a job whose worker died is re-queued after this
