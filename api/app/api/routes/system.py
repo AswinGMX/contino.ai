@@ -50,11 +50,15 @@ def login(body: LoginIn, response: Response):
     if expected and not hmac.compare_digest(body.token.encode(), expected.encode()):
         response.status_code = 401
         return {"error": {"code": "unauthorized", "message": "Wrong access token."}}
-    response.set_cookie(COOKIE, body.token, httponly=True, samesite="lax", max_age=7 * 86400)
+    cross = get_settings().cookie_cross_site
+    # Frontend and API on different domains need SameSite=None; Secure, or the browser drops the cookie.
+    response.set_cookie(COOKIE, body.token, httponly=True, max_age=7 * 86400,
+                        samesite="none" if cross else "lax", secure=cross)
     return {"ok": True}
 
 
 @router.post("/auth/logout")
 def logout(response: Response):
-    response.delete_cookie(COOKIE)
+    cross = get_settings().cookie_cross_site
+    response.delete_cookie(COOKIE, samesite="none" if cross else "lax", secure=cross)
     return {"ok": True}

@@ -16,7 +16,8 @@ def build_storage(settings: Settings) -> Storage:
     if settings.storage_mode == "cloud":
         from .cloud import CloudStorage
         return CloudStorage(settings.database_url, settings.r2_account_id, settings.r2_access_key_id,
-                            settings.r2_secret_access_key, settings.r2_bucket)
+                            settings.r2_secret_access_key, settings.r2_bucket,
+                            pool_min=settings.db_pool_min, pool_max=settings.db_pool_max)
     raise ValueError(f"unknown STORAGE_MODE {settings.storage_mode!r}")
 
 

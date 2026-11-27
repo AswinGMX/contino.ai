@@ -1,0 +1,10 @@
+# Backend Vercel project (repo root): ship only the API, prompts and config.
+web/
+data/
+output/
+input/
+DOC/
+**/.venv
+**/node_modules
+**/__pycache__
+api/tests/

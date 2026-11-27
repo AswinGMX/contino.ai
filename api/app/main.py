@@ -49,7 +49,8 @@ async def lifespan(app: FastAPI):
     ctx = get_ctx()
     ctx.storage.healthcheck()
     worker = None
-    if ctx.settings.embedded_worker:
+    # A serverless function is frozen between requests: jobs run on a separate always-on worker instead.
+    if ctx.settings.embedded_worker and not ctx.settings.serverless:
         worker = Worker(ctx.storage, ctx.cfg.jobs.workers, ctx.cfg.jobs.poll_interval_seconds,
                         ctx.cfg.jobs.lease_seconds)
         worker.start()
@@ -95,8 +96,9 @@ def create_app() -> FastAPI:
             correlation_id.reset(token)
 
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True,
-                       allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list,
+                       allow_origin_regex=settings.cors_origin_regex or None, allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition", "x-request-id"])
     app.include_router(system.router)
     app.include_router(projects.router)
 

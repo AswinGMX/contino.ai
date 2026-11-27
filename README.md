@@ -133,6 +133,8 @@ Built for Track 02 (Characters, Locations & Shot Images).
 
 5. **Open http://localhost:5173** and drop in `input/Shot-Planner_The-Boy-Who-Cried-Wolf.pdf`.
 
+**Deploying online** (frontend and backend separately, e.g. on Vercel): see **[DEPLOY.md](DEPLOY.md)**.
+
 **Other ways to run it:**
 - **Docker:** `docker compose up --build`, then open http://localhost:8080 (web, API and worker).
 - **Tests:** from `api/`, with the venv active, run `python -m pytest`. They use a fake OpenAI client, so they cost nothing.

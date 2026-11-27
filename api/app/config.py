@@ -5,6 +5,7 @@ the process stops with a clear message. Modes are never switched silently.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -43,8 +44,15 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket: str = ""
 
+    # Deployment
+    cookie_cross_site: bool = False   # true when frontend and API are on different domains (e.g. two Vercel projects)
+    cors_origin_regex: str = ""       # e.g. https://contino-.*\.vercel\.app to allow Vercel preview URLs
+    db_pool_min: int = 1
+    db_pool_max: int = 10
+
     data_dir: Path = ROOT_DIR / "data"
-    output_dir: Path = ROOT_DIR / "output"
+    # Serverless platforms only allow writing to /tmp.
+    output_dir: Path = Path("/tmp/output") if os.environ.get("VERCEL") else ROOT_DIR / "output"
     prompts_dir: Path = ROOT_DIR / "prompts"
     config_file: Path = ROOT_DIR / "config.yaml"
 
@@ -52,8 +60,14 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    @property
+    def serverless(self) -> bool:
+        return bool(os.environ.get("VERCEL"))
+
     def validate_for_mode(self) -> None:
         missing: list[str] = []
+        if self.serverless and self.storage_mode != "cloud":
+            raise ConfigError("On Vercel the disk is temporary: set STORAGE_MODE=cloud (Postgres + R2).")
         if not self.openai_api_key:
             missing.append("OPENAI_API_KEY")
         if self.storage_mode == "cloud":
