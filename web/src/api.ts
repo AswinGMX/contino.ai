@@ -45,7 +45,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch { /* not JSON */ }
     throw new ApiError(res.status, code, message);
   }
-  return res.status === 204 ? (undefined as T) : absolutize(await res.json());
+  if (res.status === 204) return undefined as T;
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    // Got a web page instead of API data: the frontend is not pointed at the backend.
+    throw new ApiError(res.status, "api_not_configured", API_BASE
+      ? `The server at ${API_BASE} did not answer like the contino.ai API. Check VITE_API_URL.`
+      : "This site was built without VITE_API_URL, so it cannot find the API. Set VITE_API_URL in Vercel and redeploy.");
+  }
+  return absolutize(await res.json());
 }
 
 const enc = encodeURIComponent;
