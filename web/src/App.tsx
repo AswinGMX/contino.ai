@@ -11,6 +11,7 @@ import LibraryPage from "./pages/LibraryPage";
 import PlanPage from "./pages/PlanPage";
 import StoryboardPage from "./pages/StoryboardPage";
 import UsagePage from "./pages/UsagePage";
+import { useJobDriver } from "./jobDriver";
 import { steps } from "./progress";
 
 export default function App() {
@@ -115,6 +116,7 @@ function ProjectShell() {
     refetchInterval: (q) => (q.state.data?.active_jobs ? 2000 : 8000),
   });
   const o = ov.data;
+  useJobDriver(pid, o?.active_jobs ?? 0);
   if (ov.error instanceof ApiError && ov.error.status === 404) {
     return <div className="content"><div className="empty"><h3>Project not found</h3><Link to="/">Back to home</Link></div></div>;
   }

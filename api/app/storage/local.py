@@ -260,7 +260,7 @@ class LocalStorage(Storage):
             self._write(path, data)
             return job
 
-    def claim_job(self, worker_id, lease_seconds):
+    def claim_job(self, worker_id, lease_seconds, project=None):
         path = self._path(GLOBAL, "jobs")
         with self._lock(path):
             data = self._read(path)
@@ -268,7 +268,8 @@ class LocalStorage(Storage):
             now = time.time()
             runnable = [
                 j for j in coll.values()
-                if j["status"] == "queued" or (j["status"] == "running" and j.get("lease_until", 0) < now)
+                if (project is None or j["project_id"] == project)
+                and (j["status"] == "queued" or (j["status"] == "running" and j.get("lease_until", 0) < now))
             ]
             if not runnable:
                 return None

@@ -45,7 +45,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch { /* not JSON */ }
     throw new ApiError(res.status, code, message);
   }
-  return res.status === 204 ? (undefined as T) : absolutize(await res.json());
+  if (res.status === 204) return undefined as T;
+  if (!(res.headers.get("content-type") ?? "").includes("application/json")) {
+    // Got a web page instead of API data: the frontend is not pointed at the backend.
+    throw new ApiError(res.status, "api_not_configured", API_BASE
+      ? `The server at ${API_BASE} did not answer like the contino.ai API. Check VITE_API_URL.`
+      : "This site was built without VITE_API_URL, so it cannot find the API. Set VITE_API_URL in Vercel and redeploy.");
+  }
+  return absolutize(await res.json());
 }
 
 const enc = encodeURIComponent;
@@ -152,6 +159,8 @@ export interface UsageView {
 export interface User { email: string; name: string }
 export interface PublicConfig {
   storage_mode: string; access_code_required: boolean;
+  /** No separate worker (serverless): the open tab asks the API to run queued jobs. */
+  browser_runs_jobs: boolean; browser_parallel_jobs: number;
   models: { image: string; text: string; vision: string };
 }
 
@@ -174,6 +183,7 @@ export const api = {
     return request<Project>("/api/projects", { method: "POST", body: fd });
   },
   overview: (pid: string) => request<Overview>(P(pid)),
+  runJob: (pid: string) => post<{ ran: string | null; job_id?: string | null; disabled?: boolean }>(`${P(pid)}/jobs/run`),
   deleteProject: (pid: string) => request<void>(P(pid), { method: "DELETE" }),
 
   plan: (pid: string) => request<PlanView>(`${P(pid)}/plan`),

@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_runnable ON jobs (status, created_at);
 CREATE INDEX IF NOT EXISTS jobs_project ON jobs (project_id, status);
+CREATE INDEX IF NOT EXISTS jobs_project_runnable ON jobs (project_id, status, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedupe_active ON jobs (dedupe_key)
     WHERE dedupe_key <> '' AND status IN ('queued', 'running');
 """
@@ -309,15 +310,15 @@ class CloudStorage(Storage):
                 return row[0] if row else job
             return res[0]
 
-    def claim_job(self, worker_id, lease_seconds):
+    def claim_job(self, worker_id, lease_seconds, project=None):
         now = time.time()
+        runnable = "(status='queued' OR (status='running' AND lease_until < %s))"
+        if project:
+            sql, args = f"SELECT id, data FROM jobs WHERE project_id=%s AND {runnable}", (project, now)
+        else:
+            sql, args = f"SELECT id, data FROM jobs WHERE {runnable}", (now,)
         with self.pool.connection() as conn, conn.transaction():
-            row = conn.execute(
-                """SELECT id, data FROM jobs
-                   WHERE status='queued' OR (status='running' AND lease_until < %s)
-                   ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED""",
-                (now,),
-            ).fetchone()
+            row = conn.execute(sql + " ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED", args).fetchone()
             if row is None:
                 return None
             jid, data = row
