@@ -1,4 +1,4 @@
-# Build context: repository root (needs prompts/ and config.yaml).
+# Build context: repository root (docker-compose). api/ itself holds prompts/ and config.yaml.
 FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
@@ -6,8 +6,8 @@ WORKDIR /srv
 COPY api/requirements.txt api/requirements.txt
 RUN pip install -r api/requirements.txt
 COPY api/app api/app
-COPY prompts prompts
-COPY config.yaml config.yaml
+COPY api/prompts api/prompts
+COPY api/config.yaml api/config.yaml
 RUN useradd -r -u 10001 app && mkdir -p data output && chown -R app data output
 USER app
 WORKDIR /srv/api

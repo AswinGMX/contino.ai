@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+API_DIR = Path(__file__).resolve().parents[1]  # api/: self-contained for its own deploy
 
 
 class ConfigError(RuntimeError):
@@ -52,8 +53,8 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT_DIR / "data"
     # Serverless platforms only allow writing to /tmp.
     output_dir: Path = Path("/tmp/output") if os.environ.get("VERCEL") else ROOT_DIR / "output"
-    prompts_dir: Path = ROOT_DIR / "prompts"
-    config_file: Path = ROOT_DIR / "config.yaml"
+    prompts_dir: Path = API_DIR / "prompts"
+    config_file: Path = API_DIR / "config.yaml"
 
     @property
     def cors_origin_list(self) -> list[str]:

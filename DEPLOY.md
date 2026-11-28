@@ -6,7 +6,7 @@
  Browser ──► Frontend (Vercel, project root: web/)
                │  VITE_API_URL=https://<api>.vercel.app
                ▼
-             API (Vercel, project root: repo root)  ──┐
+             API (Vercel, project root: api/)  ───────┐
                                                       ├──► Postgres (Neon)  +  Cloudflare R2 (images)
              Worker (Railway / Render / Fly)  ────────┘     shared by both
              runs: python -m app.worker
@@ -34,9 +34,10 @@
 
 ## Step 2 · Deploy the API on Vercel
 
-1. **New Project** in Vercel → import the repo → **Root Directory: the repo root** (leave as `/`).
-   - `vercel.json` at the root builds `api/index.py` with Python.
-   - `.vercelignore` keeps `web/` and data out of this project.
+1. **New Project** in Vercel → import the repo → **Root Directory: `api`** → **Framework Preset: Other** (no build or output settings).
+   - `api/` is self-contained: it holds `index.py`, `app/`, `prompts/` and `config.yaml`.
+   - `api/vercel.json` builds `index.py` with Python and sends every path to it.
+   - `api/.vercelignore` keeps tests and local files out of the upload.
 2. **Environment variables** (Settings → Environment Variables):
 
    | Name | Value |
@@ -58,7 +59,7 @@
 
 ## Step 3 · Run the worker (always-on)
 
-Use the existing `api/Dockerfile`. Its build context is the repo root, because it needs `prompts/` and `config.yaml`.
+Use the existing `api/Dockerfile` with the repo root as build context (the same as `docker-compose.yml`).
 
 **Railway or Render:**
 1. New service from the repo → **Dockerfile path:** `api/Dockerfile` (build context: repo root).
