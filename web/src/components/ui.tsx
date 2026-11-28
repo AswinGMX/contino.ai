@@ -314,9 +314,11 @@ export function BudgetCard({ budget }: { budget?: Budget }) {
   const tone = budget.blocked ? "bar-err" : budget.warn ? "bar-warn" : "bar-ok";
   return (
     <div className="budget-card">
-      <div className="row" style={{ gap: 6 }}><b>Budget</b><span className="tnum">${budget.spent_usd.toFixed(2)} / ${budget.limit_usd.toFixed(0)}</span></div>
+      <div className="row" style={{ gap: 6 }} title="Everything spent on the team's OpenAI key: all projects, all users">
+        <b>Team budget</b><span className="tnum">${budget.spent_usd.toFixed(2)} / ${budget.limit_usd.toFixed(0)}</span>
+      </div>
       <div className={`bar ${tone}`}><span style={{ width: `${Math.max(pct, 2)}%` }} /></div>
-      <span className="faint">{budget.blocked ? "Limit reached · paused" : budget.warn ? "Over 80% used" : `$${budget.remaining_usd.toFixed(2)} left`}</span>
+      <span className="faint">{budget.blocked ? "Limit reached · paused" : budget.warn ? "Over 80% used" : `$${budget.remaining_usd.toFixed(2)} left`} · all projects</span>
     </div>
   );
 }

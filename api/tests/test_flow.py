@@ -415,3 +415,38 @@ def test_uploaded_pictures_are_not_scored(env):
     assert theo["check"] is None and theo["status"] == "needs_approval"
     r = c.post(f"/api/projects/{pid}/library/char:theo/check")
     assert r.status_code == 409 and _err(r) == "uploaded_not_scored"
+
+
+
+def test_users_own_their_projects(env):
+    from fastapi.testclient import TestClient
+    c = env.client
+    pid = setup_project(env)
+    me = c.get("/api/auth/me").json()["user"]
+    assert me["email"] == "tester@example.com"                       # email is normalised and is the user id
+    assert env.storage.project_owner(pid) == "tester@example.com"
+    # signed out: everything under /api needs a user
+    anon = TestClient(c.app)
+    assert anon.get("/api/projects").status_code == 401
+    # another user sees nothing of tester's work
+    other = TestClient(c.app)
+    other.post("/api/auth/login", json={"email": "someone.else@example.com"})
+    assert other.get("/api/projects").json() == []
+    assert other.get(f"/api/projects/{pid}").status_code == 404
+    assert other.get(f"/api/projects/{pid}/plan").status_code == 404
+    assert other.delete(f"/api/projects/{pid}").status_code == 404
+    assert [o["project"]["id"] for o in c.get("/api/projects").json()] == [pid]
+
+
+def test_every_file_is_in_the_catalogue(env):
+    c = env.client
+    pid = setup_project(env)
+    c.post(f"/api/projects/{pid}/plan/approve")
+    approve_library(env, pid)
+    c.post(f"/api/projects/{pid}/scenes/S01/generate", json={})
+    env.drain()
+    assets = c.get(f"/api/projects/{pid}/assets").json()
+    kinds = {a["kind"] for a in assets}
+    assert {"input", "character", "place", "expression", "panel", "panel_captioned", "board"} <= kinds
+    theo = [a for a in assets if a["item_id"] == "char:theo"]
+    assert theo and theo[0]["version"] == 1 and len(theo[0]["sha256"]) == 64 and theo[0]["bytes"] > 0

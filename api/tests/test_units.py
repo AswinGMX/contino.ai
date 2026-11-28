@@ -83,3 +83,36 @@ def test_downscale_shrinks_reference_images():
     big = png_bytes(size=(1536, 1024))
     small = imaging.downscale(big, 512, fmt="PNG")
     assert max(imaging.open_image(small).size) == 512
+
+
+def test_only_characters_listed_in_the_pdf_are_kept():
+    from app.domain.models import Plan
+    from app.services.planner import keep_listed_characters
+    plan = Plan.model_validate({
+        "characters": [{"id": "mira", "name": "Mira"}, {"id": "passers-by", "name": "Passers-by"},
+                       {"id": "friend", "name": "Childhood friend"}],
+        "locations": [{"id": "street", "name": "Street"}],
+        "scenes": [{"id": "S01", "shots": [{"id": "S01_SH01", "location_id": "street", "character_ids": ["mira", "passers-by"]}]}],
+    })
+    text = ("Characters NAME ROLE LOOK Mira The child, 9 Short dark curls, yellow raincoat "
+            "Locations LOCATION DESCRIPTION Street ... S01_SH01 Mira, passers-by Street")
+    out = keep_listed_characters(plan, text).normalise()
+    assert [c.name for c in out.characters] == ["Mira"]
+    sh = out.scenes[0].shots[0]
+    assert sh.character_ids == ["mira"] and "Background: passers-by" in sh.notes
+
+
+def test_objects_get_no_expressions_and_mood_becomes_a_note():
+    from app.domain.models import Plan
+    plan = Plan.model_validate({
+        "characters": [{"id": "mira", "name": "Mira", "kind": "person"},
+                       {"id": "boat", "name": "The paper boat", "kind": "object"}],
+        "locations": [{"id": "street", "name": "Street"}],
+        "scenes": [{"id": "S01", "shots": [{"id": "S01_SH01", "location_id": "street", "character_ids": ["mira", "boat"],
+                    "reactions": [{"character_id": "mira", "emotion": "happy"}, {"character_id": "boat", "emotion": "playful"}]}]}],
+    }).normalise()
+    mira, boat = plan.characters
+    assert mira.reactions == ["happy"] and boat.reactions == []
+    sh = plan.scenes[0].shots[0]
+    assert [r.character_id for r in sh.reactions] == ["mira"]
+    assert "The paper boat feels playful" in sh.notes and sh.character_ids == ["mira", "boat"]

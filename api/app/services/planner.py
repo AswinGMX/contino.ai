@@ -18,7 +18,7 @@ from .repo import Repo
 MAX_PDF_BYTES = 30 * 1024 * 1024
 
 
-def create_project(ctx: Ctx, filename: str, data: bytes) -> Project:
+def create_project(ctx: Ctx, filename: str, data: bytes, owner_email: str = "") -> Project:
     if len(data) > MAX_PDF_BYTES:
         raise GateError("file_too_large", "The planner PDF must be 30 MB or smaller.")
     if not data.startswith(b"%PDF"):
@@ -27,10 +27,11 @@ def create_project(ctx: Ctx, filename: str, data: bytes) -> Project:
     pid = f"{slugify(stem)[:40]}-{new_id()[:6]}"
     repo = ctx.repo(pid)
     key = repo.image_key("input", slugify(stem) + ".pdf")
-    ctx.storage.put_image(key, data, "application/pdf")
-    project = Project(id=pid, title=stem.replace("_", " ").replace("-", " ").strip(), source_filename=filename,
-                      parse_status="parsing")
+    project = Project(id=pid, owner_email=owner_email, title=stem.replace("_", " ").replace("-", " ").strip(),
+                      source_filename=filename, parse_status="parsing")
     repo.mutate_project(lambda _c: project)
+    ctx.storage.register_project(pid, owner_email, project.title)
+    repo.put_asset(key, data, kind="input", content_type="application/pdf", source="uploaded")
     repo.mutate_plan(lambda _c: PlanRecord(plan=Plan(title=project.title), status=Status.pending, source_key=key))
     enqueue(ctx.storage, pid, "parse_plan", {"source_key": key}, dedupe_key=f"parse:{pid}")
     return project
@@ -40,7 +41,8 @@ def reparse(ctx: Ctx, repo: Repo) -> None:
     pr = repo.must_plan()
     if pr.status == Status.approved:
         raise GateError("plan_locked", "The plan is approved. Edit it instead of re-parsing.")
-    repo.mutate_project(lambda p: p.model_copy(update={"parse_status": "parsing", "parse_error": ""}) if p else None)
+    repo.mutate_project(lambda p: p.model_copy(update={"parse_status": "parsing", "parse_error": "",
+                                                       "parse_started_at": time.time()}) if p else None)
     enqueue(ctx.storage, repo.pid, "parse_plan", {"source_key": pr.source_key}, dedupe_key=f"parse:{repo.pid}")
 
 
@@ -68,13 +70,46 @@ def run_parse(ctx: Ctx, repo: Repo, source_key: str, job_id: str = "") -> Plan:
         user=f"## SHOT PLANNER TEXT\n{text}",
         schema=Plan,
     )
-    plan = _ensure_ids(plan).normalise()
+    plan = keep_listed_characters(_ensure_ids(plan), text).normalise()
     if not plan.scenes or not any(sc.shots for sc in plan.scenes):
         raise ValueError("The parser found no shots in this planner.")
     repo.mutate_plan(lambda pr: (pr or PlanRecord(plan=plan)).model_copy(
         update={"plan": plan, "status": Status.needs_approval}))
-    repo.mutate_project(lambda p: p.model_copy(update={
+    out = repo.mutate_project(lambda p: p.model_copy(update={
         "parse_status": "done", "parse_error": "", "title": plan.title or p.title}) if p else None)
+    if out is not None:
+        ctx.storage.register_project(repo.pid, out.owner_email, out.title)
+    return plan
+
+
+def keep_listed_characters(plan: Plan, text: str) -> Plan:
+    """If the PDF has a Characters section, drop characters it does not name (e.g. passers-by from a shot row).
+
+    Dropped ones are kept as background notes on the shots that mentioned them, so sketches still show them.
+    """
+    import re
+    m = re.search(r"\bcharacters\b(.*?)(?:\blocations?\b|\bplaces\b|\bsettings?\b|\bscenes?\s*&|\bshot list\b)",
+                  text, flags=re.I | re.S)
+    if not m or len(m.group(1).strip()) < 20:
+        return plan                                   # no clear Characters section: trust the reader
+    section = m.group(1).lower()
+
+    def listed(name: str) -> bool:
+        n = name.lower().strip()
+        return n in section or n.removeprefix("the ").strip() in section
+
+    keep = [c for c in plan.characters if listed(c.name)]
+    if not keep or len(keep) == len(plan.characters):
+        return plan
+    dropped = {c.id: c.name for c in plan.characters if c not in keep}
+    plan.characters = keep
+    for sc in plan.scenes:
+        for sh in sc.shots:
+            extra = [dropped[cid] for cid in sh.character_ids if cid in dropped]
+            if extra:
+                sh.notes = (sh.notes + " " if sh.notes else "") + "Background: " + ", ".join(extra).lower() + "."
+            sh.character_ids = [c for c in sh.character_ids if c not in dropped]
+            sh.reactions = [r for r in sh.reactions if r.character_id not in dropped]
     return plan
 
 

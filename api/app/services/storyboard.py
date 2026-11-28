@@ -267,8 +267,8 @@ def run_panel(ctx: Ctx, repo: Repo, shot_id: str, comment: str, quality: str, jo
     n = (panel.current.n + 1) if panel.current else 1
     key = repo.image_key("storyboards", "panels", f"{shot_id}_v{n}.png")
     ckey = repo.image_key("storyboards", "panels", f"{shot_id}_v{n}_captioned.png")
-    ctx.storage.put_image(key, img)
-    ctx.storage.put_image(ckey, captioned)
+    repo.put_asset(key, img, kind="panel", item_id=shot_id, version=n)
+    repo.put_asset(ckey, captioned, kind="panel_captioned", item_id=shot_id, version=n, source="system")
 
     def fn(cur: Panel | None) -> Panel:
         cur = cur or Panel(id=shot_id, scene_id=scene.id)
@@ -423,7 +423,7 @@ def compose_board(ctx: Ctx, repo: Repo, plan: Plan, scene_id: str) -> Board | No
     png = imaging.compose_board(title, imgs)
     tag = "-".join(str(versions[s.id]) for s in scene.shots)
     key = repo.image_key("storyboards", f"{scene_id}_storyboard_{tag}_{uuid.uuid4().hex[:6]}.png")
-    ctx.storage.put_image(key, png)
+    repo.put_asset(key, png, kind="board", item_id=scene_id, source="system")
 
     def fn(cur: Board | None) -> Board | None:
         cur = cur or Board(id=scene_id)

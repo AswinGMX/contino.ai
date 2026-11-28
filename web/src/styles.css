@@ -439,3 +439,5 @@ button.hist-chip:disabled { cursor: default; }
 .viewer-next { right: 12px; }
 .viewer-count { position: absolute; top: 10px; right: 10px; padding: 5px 10px; border-radius: 99px; background: rgba(15, 26, 53, .72);
   color: #fff; font-size: 12.5px; font-weight: 600; backdrop-filter: blur(6px); }
+
+.user-chip { display: flex; align-items: center; gap: 10px; padding: 6px 4px 2px; }

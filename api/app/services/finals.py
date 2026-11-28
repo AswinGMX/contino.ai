@@ -108,7 +108,7 @@ def run_final(ctx: Ctx, repo: Repo, shot_id: str, comment: str, quality: str, jo
     img = imaging.crop_to_aspect(raw, tuple(ctx.cfg.image.aspect))
     n = (final.current.n + 1) if final.current else 1
     key = repo.image_key("keyframes", f"{shot_id}_v{n}.png")
-    ctx.storage.put_image(key, img)
+    repo.put_asset(key, img, kind="final", item_id=shot_id, version=n)
     used = dict(refs.used)
 
     def fn(cur: Final | None) -> Final:

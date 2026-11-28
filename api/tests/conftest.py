@@ -116,9 +116,10 @@ class FakeOpenAI:
 
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch):
-    settings = Settings(storage_mode="local", openai_api_key="test", embedded_worker=False,
+    settings = Settings(openai_api_key="test", embedded_worker=False,
                         data_dir=tmp_path / "data", output_dir=tmp_path / "output",
-                        prompts_dir=ROOT_DIR / "prompts", config_file=ROOT_DIR / "config.yaml", api_token="")
+                        prompts_dir=ROOT_DIR / "prompts", config_file=ROOT_DIR / "config.yaml", api_token="",
+                        session_secret="test-secret")
     raw = get_config().model_dump()
     raw["retries"]["backoff_seconds"] = [0, 0]
     cfg = AppConfig.model_validate(raw)
@@ -132,9 +133,12 @@ def env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.config.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.prompts.get_settings", lambda: settings)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.api.routes.system.get_settings", lambda: settings)
     from app.main import create_app
     app = create_app()
     with TestClient(app) as client:
+        r = client.post("/api/auth/login", json={"email": "Tester@Example.com", "name": "Tester"})
+        assert r.status_code == 200, r.text
         yield SimpleNamespace(client=client, ctx=ctx, fake=fake, storage=storage, settings=settings,
                               drain=lambda: drain(storage))
     set_ctx(None)

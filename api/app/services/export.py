@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import os
 import shutil
 import tempfile
@@ -104,7 +105,11 @@ def zip_export(ctx: Ctx, repo: Repo) -> tuple[str, bytes]:
         for p in sorted(dest.rglob("*")):
             if p.is_file():
                 zf.write(p, f"output/{p.relative_to(dest)}")
-    return f"{dest.name}-output.zip", buf.getvalue()
+    data = buf.getvalue()
+    name = f"{dest.name}-output.zip"
+    repo.put_asset(repo.image_key("exports", f"{int(time.time())}-{name}"), data, kind="export",
+                   content_type="application/zip", source="system")
+    return name, data
 
 
 def _md(s: str) -> str:

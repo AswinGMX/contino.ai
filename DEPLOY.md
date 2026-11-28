@@ -17,7 +17,7 @@
 | **Frontend** | Vercel | Plain static site, a perfect fit. |
 | **API** | Vercel (Python serverless) | Short requests only: read, approve, upload, queue jobs. |
 | **Worker** | An always-on host (Railway, Render, Fly or a VM) | Draws the images. One image takes 30–90 s, and a background worker must stay running. Vercel functions are frozen between requests, so the worker **cannot** run on Vercel. |
-| **Data** | Neon Postgres + Cloudflare R2 | Vercel has no permanent disk, so the app runs in **cloud mode** (`STORAGE_MODE=cloud`). |
+| **Data** | Neon Postgres + Cloudflare R2 | All data lives in PostgreSQL and every file in R2, so nothing depends on a server's disk. |
 
 > **Vercel request limit is about 4.5 MB.** Shot Planner PDFs and uploaded pictures must be smaller than that when the API runs on Vercel.
 
@@ -41,7 +41,6 @@
 
    | Name | Value |
    |---|---|
-   | `STORAGE_MODE` | `cloud` |
    | `OPENAI_API_KEY` | your team key |
    | `IMAGE_MODEL` / `TEXT_MODEL` / `REVIEW_MODEL` | the model names your key allows |
    | `DATABASE_URL` | Neon pooled connection string |
@@ -50,8 +49,9 @@
    | `CORS_ORIGIN_REGEX` | optional, to allow preview URLs: `https://contino-.*\.vercel\.app` |
    | `COOKIE_CROSS_SITE` | `true` (frontend and API are on different domains) |
    | `EMBEDDED_WORKER` | `false` |
+   | `SESSION_SECRET` | a long random string, the same on the API and the worker: `python3 -c "import secrets; print(secrets.token_hex(32))"` |
    | `DB_POOL_MIN` / `DB_POOL_MAX` | `0` / `5` (serverless-friendly) |
-   | `API_TOKEN` | optional: a password for the app |
+   | `API_TOKEN` | optional: a team access code people must enter when they sign in |
 
 3. **Deploy**, then open `https://<api>.vercel.app/api/healthz`. It should return `{"ok": true}`.
    - `/api/readyz` also checks the database and the R2 bucket.
@@ -63,7 +63,7 @@ Use the existing `api/Dockerfile`. Its build context is the repo root, because i
 **Railway or Render:**
 1. New service from the repo → **Dockerfile path:** `api/Dockerfile` (build context: repo root).
 2. **Start command:** `python -m app.worker`
-3. **Environment variables:** the **same** values as the API: `STORAGE_MODE`, `OPENAI_API_KEY`, `*_MODEL`, `DATABASE_URL` and the `R2_*` values.
+3. **Environment variables:** the **same** values as the API: `OPENAI_API_KEY`, `SESSION_SECRET`, `*_MODEL`, `DATABASE_URL` and the `R2_*` values.
    - The worker doesn't need `CORS_*` or `COOKIE_*`.
 4. **Scaling:** one instance is enough for a hackathon. Add more instances to make images faster.
    - Jobs are claimed with database locks, so two workers never do the same job.
@@ -122,5 +122,4 @@ If you'd rather avoid serverless limits, the brief's own setup works too:
 - **API + worker:** one Railway, Render or Fly service.
   - Use `api/Dockerfile` with the default command, which starts the API.
   - Set `EMBEDDED_WORKER=true` so it also runs the worker.
-  - With a persistent volume, it can even stay in `STORAGE_MODE=local`.
 - Point `VITE_API_URL` at that service.

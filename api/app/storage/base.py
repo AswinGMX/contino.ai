@@ -49,7 +49,36 @@ class Storage(ABC):
     def delete(self, project: str, collection: str, rid: str) -> None: ...
 
     @abstractmethod
-    def list_projects(self) -> list[str]: ...
+    def list_projects(self, owner_email: str | None = None) -> list[str]:
+        """Project ids, newest first; only that owner's when owner_email is given."""
+
+    # ------------------------------------------------------------ users & ownership
+    @abstractmethod
+    def upsert_user(self, email: str, name: str = "") -> dict[str, Any]:
+        """Create the user (email is the primary key) or refresh last login. Returns the user."""
+
+    @abstractmethod
+    def get_user(self, email: str) -> dict[str, Any] | None: ...
+
+    @abstractmethod
+    def register_project(self, project_id: str, owner_email: str, title: str) -> None:
+        """Insert or update the project's row (owner + title)."""
+
+    @abstractmethod
+    def project_owner(self, project_id: str) -> str | None:
+        """Owner email, '' for a legacy project with no owner, None if the project does not exist."""
+
+    @abstractmethod
+    def claim_unowned_projects(self, owner_email: str) -> int:
+        """Give projects created before users existed to this user. Returns how many."""
+
+    # ------------------------------------------------------------ file catalogue
+    @abstractmethod
+    def add_asset(self, project: str, asset: dict[str, Any]) -> None:
+        """Record a stored file (input PDF, picture, version, board, final, export) in the catalogue."""
+
+    @abstractmethod
+    def list_assets(self, project: str) -> list[dict[str, Any]]: ...
 
     @abstractmethod
     def delete_project(self, project: str) -> None:

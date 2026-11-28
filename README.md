@@ -151,11 +151,18 @@ All secrets live in `.env`, which is git-ignored. `.env.example` lists every nam
 | `IMAGE_MODEL` | Draws pictures, sketches and finals (e.g. `gpt-image-2.6-sunburst`) |
 | `TEXT_MODEL` | Reads the Shot Planner PDF |
 | `REVIEW_MODEL` | The vision model that runs the AI check |
-| `STORAGE_MODE` | `local` (default) or `cloud` |
-| `DATABASE_URL`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Cloud mode only |
-| `API_TOKEN` | Optional: when set, the app asks for this token to sign in |
+| `DATABASE_URL` | PostgreSQL connection string (required) |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Cloudflare R2 bucket for every file (required) |
+| `SESSION_SECRET` | Signs the sign-in cookie (required) |
+| `API_TOKEN` | Optional team access code, asked for at sign-in |
 
-**At startup:** the app checks every setting the chosen mode needs. If any is missing, it stops with a clear message, and it never switches modes on its own.
+**Accounts:** everyone signs in with their **email**, which is their user id. Each project belongs to the person who created it and is invisible to everyone else.
+
+**Where data lives:** PostgreSQL holds the `users`, `projects` and `assets` tables, the project data and the job queue. Every file (the input PDF, every picture and its versions, boards, finals, export zips) is stored in a private Cloudflare R2 bucket and listed in the `assets` table with its kind, version, size and checksum.
+
+**At startup:** the app checks every required setting. If any is missing, it stops with a clear message.
+
+**Check everything in one go:** from `api/`, run `python -m app.check`. It tests every setting, the PostgreSQL connection and tables, writing and reading a file in R2, and whether your OpenAI key can use the configured models.
 
 **Tuning:** every other setting (picture sizes, quality levels, review weights and pass mark, prices, budget) is in `config.yaml`.
 

@@ -60,7 +60,7 @@ export interface Budget {
 }
 export interface Project {
   id: string; title: string; created_at: number; source_filename: string;
-  parse_status: "pending" | "parsing" | "done" | "failed"; parse_error: string;
+  parse_status: "pending" | "parsing" | "done" | "failed"; parse_error: string; parse_started_at?: number;
 }
 export interface Overview {
   project: Project;
@@ -80,7 +80,7 @@ export interface Shot {
   reactions: ShotReaction[]; framing: string; time_of_day: string; props: string[]; notes: string;
 }
 export interface Scene { id: string; title: string; shots: Shot[] }
-export type CharacterKind = "person" | "animal" | "creature" | "group" | "effect";
+export type CharacterKind = "person" | "animal" | "creature" | "object" | "group" | "effect";
 export interface Character { id: string; name: string; description: string; reactions: string[]; kind?: CharacterKind | "" }
 export interface Location { id: string; name: string; description: string }
 export interface Plan { title: string; style: string; characters: Character[]; locations: Location[]; scenes: Scene[] }
@@ -149,8 +149,9 @@ export interface UsageView {
   calls: UsageCall[];
   budget: Budget;
 }
+export interface User { email: string; name: string }
 export interface PublicConfig {
-  storage_mode: string; auth_required: boolean;
+  storage_mode: string; access_code_required: boolean;
   models: { image: string; text: string; vision: string };
 }
 
@@ -161,7 +162,10 @@ const P = (pid: string) => `/api/projects/${enc(pid)}`;
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
   budget: () => request<Budget>("/api/budget"),
-  login: (token: string) => post<{ ok: boolean }>("/api/auth/login", { token }),
+  me: () => request<{ user: User }>("/api/auth/me"),
+  login: (email: string, name: string, accessCode: string) =>
+    post<{ user: User; claimed_projects: number }>("/api/auth/login", { email, name, access_code: accessCode }),
+  logout: () => post<{ ok: boolean }>("/api/auth/logout"),
 
   projects: () => request<Overview[]>("/api/projects"),
   createProject: (file: File) => {
