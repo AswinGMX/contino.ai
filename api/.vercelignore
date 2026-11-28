@@ -1,0 +1,7 @@
+# Backend Vercel project (Root Directory = api). Keep the upload small.
+tests/
+.venv/
+**/__pycache__
+.pytest_cache/
+requirements-dev.txt
+pytest.ini

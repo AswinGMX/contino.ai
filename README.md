@@ -164,7 +164,7 @@ All secrets live in `.env`, which is git-ignored. `.env.example` lists every nam
 
 **Check everything in one go:** from `api/`, run `python -m app.check`. It tests every setting, the PostgreSQL connection and tables, writing and reading a file in R2, and whether your OpenAI key can use the configured models.
 
-**Tuning:** every other setting (picture sizes, quality levels, review weights and pass mark, prices, budget) is in `config.yaml`.
+**Tuning:** every other setting (picture sizes, quality levels, review weights and pass mark, prices, budget) is in `api/config.yaml`.
 
 ---
 
@@ -233,10 +233,10 @@ output/<story>/
 ## For developers
 
 ```
-api/          FastAPI service: approval rules, job queue, storage, OpenAI calls
-web/          React + TypeScript app (Vite)
-prompts/      Editable prompts in Markdown (review.md is the AI check rules)
-config.yaml   Models, sizes, quality, review weights, prices, budget
+api/                FastAPI service: approval rules, job queue, storage, OpenAI calls
+  prompts/          Editable prompts in Markdown (review.md is the AI check rules)
+  config.yaml       Models, sizes, quality, review weights, prices, budget
+web/                React + TypeScript app (Vite)
 .env          Secrets and storage mode (git-ignored)
 ```
 

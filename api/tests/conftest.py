@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.config import ROOT_DIR, AppConfig, Settings, get_config
+from app.config import API_DIR, ROOT_DIR, AppConfig, Settings, get_config
 from app.jobs import handlers  # noqa: F401 - registers job handlers
 from app.jobs.queue import Worker
 from app.services import planner
@@ -118,7 +118,7 @@ class FakeOpenAI:
 def env(tmp_path: Path, monkeypatch):
     settings = Settings(openai_api_key="test", embedded_worker=False,
                         data_dir=tmp_path / "data", output_dir=tmp_path / "output",
-                        prompts_dir=ROOT_DIR / "prompts", config_file=ROOT_DIR / "config.yaml", api_token="",
+                        prompts_dir=API_DIR / "prompts", config_file=API_DIR / "config.yaml", api_token="",
                         session_secret="test-secret")
     raw = get_config().model_dump()
     raw["retries"]["backoff_seconds"] = [0, 0]
