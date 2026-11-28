@@ -115,8 +115,11 @@ class Storage(ABC):
         """Insert a job; if a queued/running job with the same dedupe_key exists, return it instead."""
 
     @abstractmethod
-    def claim_job(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None:
-        """Atomically claim the oldest runnable job (queued, or running with an expired lease)."""
+    def claim_job(self, worker_id: str, lease_seconds: int, project: str | None = None) -> dict[str, Any] | None:
+        """Atomically claim the oldest runnable job (queued, or running with an expired lease).
+
+        With `project`, only that project's jobs are considered (used by in-request runs).
+        """
 
     @abstractmethod
     def finish_job(self, job_id: str, status: str, error: str = "") -> None: ...

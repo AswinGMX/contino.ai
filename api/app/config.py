@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     api_token: str = ""              # optional team access code required to sign in
     session_secret: str = ""         # signs sign-in cookies (required)
     embedded_worker: bool = True
+    # Run jobs inside API requests driven by the open browser tab (no separate worker).
+    # Unset = automatic: on for serverless hosts (Vercel), off elsewhere.
+    request_jobs: bool | None = None
     cors_origins: str = "http://localhost:5173"
     log_level: str = "INFO"
 
@@ -63,6 +66,10 @@ class Settings(BaseSettings):
     @property
     def serverless(self) -> bool:
         return bool(os.environ.get("VERCEL"))
+
+    @property
+    def browser_runs_jobs(self) -> bool:
+        return self.serverless if self.request_jobs is None else self.request_jobs
 
     @property
     def storage_mode(self) -> str:
@@ -130,6 +137,8 @@ class JobsConfig(BaseModel):
     image_concurrency: int = 4
     poll_interval_seconds: float = 0.5
     lease_seconds: int = 600
+    request_lease_seconds: int = 330      # in-request runs: just over the host's max function time
+    browser_parallel_jobs: int = 3        # how many jobs one open tab runs at the same time
 
 
 class ModelsConfig(BaseModel):

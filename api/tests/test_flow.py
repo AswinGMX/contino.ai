@@ -450,3 +450,29 @@ def test_every_file_is_in_the_catalogue(env):
     assert {"input", "character", "place", "expression", "panel", "panel_captioned", "board"} <= kinds
     theo = [a for a in assets if a["item_id"] == "char:theo"]
     assert theo and theo[0]["version"] == 1 and len(theo[0]["sha256"]) == 64 and theo[0]["bytes"] > 0
+
+
+def test_browser_runs_jobs_without_worker(env):
+    """Serverless setup: no worker; the open tab calls /jobs/run and each call runs one job."""
+    c = env.client
+    env.settings.request_jobs = True
+    assert c.get("/api/config").json()["browser_runs_jobs"] is True
+    r = c.post("/api/projects", files={"file": ("Shot-Planner_Test.pdf", b"%PDF-1.4 fake", "application/pdf")})
+    pid = r.json()["id"]
+    out = c.post(f"/api/projects/{pid}/jobs/run").json()
+    assert out["ran"] == "parse_plan"
+    assert c.get(f"/api/projects/{pid}/plan").json()["status"] == "needs_approval"
+    assert c.post(f"/api/projects/{pid}/jobs/run").json()["ran"] is None  # queue empty
+
+    # Another user's run call cannot touch this project (owner check: 404).
+    c.post("/api/auth/logout")
+    c.post("/api/auth/login", json={"email": "someone@else.com", "name": "Else"})
+    assert c.post(f"/api/projects/{pid}/jobs/run").status_code == 404
+
+
+def test_run_job_disabled_when_worker_mode(env):
+    env.settings.request_jobs = False
+    c = env.client
+    pid = c.post("/api/projects", files={"file": ("Shot-Planner_Test.pdf", b"%PDF-1.4 fake", "application/pdf")}).json()["id"]
+    assert c.post(f"/api/projects/{pid}/jobs/run").json() == {"ran": None, "disabled": True}
+    assert len(c.get(f"/api/projects/{pid}/jobs").json()) == 1  # still queued for the worker

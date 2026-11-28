@@ -159,6 +159,8 @@ export interface UsageView {
 export interface User { email: string; name: string }
 export interface PublicConfig {
   storage_mode: string; access_code_required: boolean;
+  /** No separate worker (serverless): the open tab asks the API to run queued jobs. */
+  browser_runs_jobs: boolean; browser_parallel_jobs: number;
   models: { image: string; text: string; vision: string };
 }
 
@@ -181,6 +183,7 @@ export const api = {
     return request<Project>("/api/projects", { method: "POST", body: fd });
   },
   overview: (pid: string) => request<Overview>(P(pid)),
+  runJob: (pid: string) => post<{ ran: string | null; job_id?: string | null; disabled?: boolean }>(`${P(pid)}/jobs/run`),
   deleteProject: (pid: string) => request<void>(P(pid), { method: "DELETE" }),
 
   plan: (pid: string) => request<PlanView>(`${P(pid)}/plan`),

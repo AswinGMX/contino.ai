@@ -4,8 +4,21 @@
     {
       "src": "index.py",
       "use": "@vercel/python",
-      "config": { "includeFiles": ["app/**", "prompts/**", "config.yaml"], "maxLambdaSize": "60mb" }
+      "config": {
+        "includeFiles": [
+          "app/**",
+          "prompts/**",
+          "config.yaml"
+        ],
+        "maxLambdaSize": "60mb",
+        "maxDuration": 300
+      }
     }
   ],
-  "routes": [{ "src": "/(.*)", "dest": "index.py" }]
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.py"
+    }
+  ]
 }

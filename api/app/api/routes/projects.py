@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from ...domain.models import Plan
+from ...jobs.queue import run_next
 from ...services import export as export_svc
 from ...services import finals, library, planner, storyboard, usage
 from ...services.context import Ctx, get_ctx
@@ -284,6 +285,15 @@ def get_jobs(repo: Repo = Depends(repo_dep), ctx: Ctx = Depends(ctx_dep), active
     jobs = ctx.storage.list_jobs(repo.pid, active_only=active)
     return [{k: j.get(k) for k in ("id", "type", "status", "payload", "attempts", "error", "created_at")}
             for j in jobs]
+
+
+@router.post("/{project_id}/jobs/run")
+def run_job(repo: Repo = Depends(repo_dep), ctx: Ctx = Depends(ctx_dep)):
+    """Run this project's next job inside this request (setups without a separate worker)."""
+    if not ctx.settings.browser_runs_jobs:
+        return {"ran": None, "disabled": True}
+    job = run_next(ctx.storage, repo.pid, ctx.cfg.jobs.request_lease_seconds)
+    return {"ran": job.type if job else None, "job_id": job.id if job else None}
 
 
 @router.post("/{project_id}/export")

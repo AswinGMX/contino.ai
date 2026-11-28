@@ -90,3 +90,6 @@ jobs:
   image_concurrency: 4          # concurrent image calls per process (rate-limit friendly)
   poll_interval_seconds: 0.5
   lease_seconds: 600            # a job whose worker died is re-queued after this
+  # No separate worker (Vercel): the open browser tab asks the API to run jobs.
+  request_lease_seconds: 330    # just over Vercel's 300 s function limit
+  browser_parallel_jobs: 3      # jobs one open tab runs at the same time

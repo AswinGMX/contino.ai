@@ -86,26 +86,50 @@ class Worker:
             self._run(Job.model_validate(raw))
 
     def _run(self, job: Job) -> None:
-        token = correlation_id.set(job.id)
-        t0 = time.monotonic()
-        try:
-            fn = _HANDLERS.get(job.type)
-            if fn is None:
-                raise RuntimeError(f"no handler for job type {job.type}")
-            if job.attempts > MAX_JOB_ATTEMPTS:
-                raise RuntimeError("job abandoned too many times; handing to a person")
-            fn(job)
-            self.s.finish_job(job.id, "succeeded")
-            log(logger, logging.INFO, "job done", type=job.type, seconds=round(time.monotonic() - t0, 2))
-        except Exception as exc:  # noqa: BLE001
-            msg = str(exc) or type(exc).__name__
-            log(logger, logging.WARNING, "job failed", type=job.type, error=msg[:500])
-            hook = _FAIL_HOOKS.get(job.type)
-            if hook:
-                try:
-                    hook(job, msg)
-                except Exception:  # noqa: BLE001
-                    logger.exception("fail hook crashed")
-            self.s.finish_job(job.id, "failed", msg)
-        finally:
-            correlation_id.reset(token)
+        execute(self.s, job)
+
+
+def execute(storage: Storage, job: Job) -> None:
+    """Run one claimed job to completion and record the outcome (never raises)."""
+    token = correlation_id.set(job.id)
+    t0 = time.monotonic()
+    try:
+        fn = _HANDLERS.get(job.type)
+        if fn is None:
+            raise RuntimeError(f"no handler for job type {job.type}")
+        if job.attempts > MAX_JOB_ATTEMPTS:
+            raise RuntimeError("job abandoned too many times; handing to a person")
+        fn(job)
+        storage.finish_job(job.id, "succeeded")
+        log(logger, logging.INFO, "job done", type=job.type, seconds=round(time.monotonic() - t0, 2))
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc) or type(exc).__name__
+        log(logger, logging.WARNING, "job failed", type=job.type, error=msg[:500])
+        hook = _FAIL_HOOKS.get(job.type)
+        if hook:
+            try:
+                hook(job, msg)
+            except Exception:  # noqa: BLE001
+                logger.exception("fail hook crashed")
+        storage.finish_job(job.id, "failed", msg)
+    finally:
+        correlation_id.reset(token)
+
+
+def run_next(storage: Storage, project: str, lease_seconds: int) -> Job | None:
+    """Claim and run the oldest runnable job of one project inside the current request.
+
+    Used where no always-on worker exists (serverless): the open browser tab asks the API
+    to run jobs one at a time. Each call is an independent function invocation, so many
+    projects and users progress in parallel; FOR UPDATE SKIP LOCKED guarantees a job is
+    run by one caller only, and an invocation killed mid-job is re-claimed when its short
+    lease expires.
+    """
+    from . import handlers  # noqa: F401  (registers handlers)
+    worker_id = f"request:{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
+    raw = storage.claim_job(worker_id, lease_seconds, project=project)
+    if raw is None:
+        return None
+    job = Job.model_validate(raw)
+    execute(storage, job)
+    return job

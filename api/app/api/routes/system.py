@@ -29,6 +29,8 @@ def public_config(ctx: Ctx = Depends(get_ctx)):
     return {
         "storage_mode": ctx.settings.storage_mode,
         "access_code_required": bool(ctx.settings.api_token),
+        "browser_runs_jobs": ctx.settings.browser_runs_jobs,
+        "browser_parallel_jobs": ctx.cfg.jobs.browser_parallel_jobs,
         "models": ctx.cfg.models.model_dump(),
         "image": {"draft_quality": ctx.cfg.image.draft_quality, "final_quality": ctx.cfg.image.final_quality},
         "review": ctx.cfg.review.model_dump(),

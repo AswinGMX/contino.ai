@@ -8,15 +8,15 @@
                ▼
              API (Vercel, project root: api/)  ───────┐
                                                       ├──► Postgres (Neon)  +  Cloudflare R2 (images)
-             Worker (Railway / Render / Fly)  ────────┘     shared by both
-             runs: python -m app.worker
+             (optional) Worker  ──────────────────────┘     shared by both
 ```
 
 | Piece | Host | Why |
 |---|---|---|
 | **Frontend** | Vercel | Plain static site, a perfect fit. |
 | **API** | Vercel (Python serverless) | Short requests only: read, approve, upload, queue jobs. |
-| **Worker** | An always-on host (Railway, Render, Fly or a VM) | Draws the images. One image takes 30–90 s, and a background worker must stay running. Vercel functions are frozen between requests, so the worker **cannot** run on Vercel. |
+| **Jobs (pictures)** | Inside the Vercel API | No worker needed. While a project is open, the browser tab asks the API to run the next job (`POST /api/projects/{id}/jobs/run`); each call draws one picture in its own function (up to 300 s). A database lock makes sure a job runs only once. If the tab is closed, queued jobs wait until the project is opened again. |
+| **Worker (optional)** | An always-on host | Only if you want jobs to keep running with every tab closed. See step 3. |
 | **Data** | Neon Postgres + Cloudflare R2 | All data lives in PostgreSQL and every file in R2, so nothing depends on a server's disk. |
 
 > **Vercel request limit is about 4.5 MB.** Shot Planner PDFs and uploaded pictures must be smaller than that when the API runs on Vercel.
@@ -57,7 +57,9 @@
 3. **Deploy**, then open `https://<api>.vercel.app/api/healthz`. It should return `{"ok": true}`.
    - `/api/readyz` also checks the database and the R2 bucket.
 
-## Step 3 · Run the worker (always-on)
+## Step 3 · (Optional) Run an always-on worker
+
+Skip this step if the in-API jobs are enough. Add a worker only when pictures must keep being drawn with every browser tab closed; then also set `REQUEST_JOBS=false` on the API.
 
 Use the existing `api/Dockerfile` with the repo root as build context (the same as `docker-compose.yml`).
 
@@ -93,8 +95,8 @@ docker run --env-file .env contino-worker python -m app.worker
 
 1. **Open the frontend URL.** The budget card in the sidebar should load. If it doesn't, check `CORS_ORIGINS` on the API.
 2. **Upload a small planner PDF** (under 4.5 MB). Within a minute the plan should appear.
-   - If it stays on "Reading your Shot Planner…", the worker isn't running or has different env values.
-3. **Create a character picture.** It appears after the worker draws it. Images are served from R2 through short-lived links.
+   - If it stays on "Reading your Shot Planner…", check the API's function logs in Vercel.
+3. **Create a character picture.** It appears in about a minute while the project is open. Images are served from R2 through short-lived links.
 
 ---
 
@@ -113,6 +115,7 @@ docker run --env-file .env contino-worker python -m app.worker
 | `CORS_ORIGIN_REGEX` | API | Pattern for extra allowed origins (e.g. Vercel previews) |
 | `COOKIE_CROSS_SITE` | API | `true` → sign-in cookie uses `SameSite=None; Secure`, needed across domains |
 | `EMBEDDED_WORKER` | API | `false` on Vercel. It's also ignored there automatically. |
+| `REQUEST_JOBS` | API | Leave unset: on Vercel, the open tab runs jobs through the API. `false` = a separate worker runs them. |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | API, worker | Database connections per process |
 | `OUTPUT_DIR` | API | Where exports are written. It defaults to `/tmp/output` on Vercel. |
 
