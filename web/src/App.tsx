@@ -186,21 +186,43 @@ function Login() {
   };
   return (
     <div className="login">
-      <form className="card card-pad stack" style={{ width: "min(420px, 100%)", gap: 14 }} onSubmit={submit}>
-        <Logo size={40} tagline />
-        <div className="vstack" style={{ gap: 2 }}>
-          <b style={{ fontSize: 17 }}>Sign in</b>
-          <span className="muted small">Your email is your account. Your projects are private to you.</span>
+      <form className="login-card" onSubmit={submit} noValidate={false}>
+        <Logo size={44} tagline />
+        <div className="login-head">
+          <h1>Sign in</h1>
+          <p>Your email is your account. Your projects are private to you.</p>
         </div>
-        <label className="field">Email<input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" /></label>
-        <label className="field">Your name <span className="faint" style={{ fontWeight: 400 }}>(optional)</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Aswin" /></label>
-        {needCode && (
-          <label className="field">Team access code<input type="password" required value={code} onChange={(e) => setCode(e.target.value)} /></label>
-        )}
-        {err && <span className="err-text small">{err}</span>}
-        <button className="btn btn-primary" type="submit" disabled={busy || !email}>
-          {busy && <span className="spinner" />}Continue
+        <div className="login-fields">
+          <label className="lf">
+            <span className="lf-label">Email</span>
+            <span className="lf-box">
+              <Icon name="mail" size={17} />
+              <input type="email" required autoFocus autoComplete="email" inputMode="email" value={email}
+                onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
+            </span>
+          </label>
+          <label className="lf">
+            <span className="lf-label">Your name <em>Optional</em></span>
+            <span className="lf-box">
+              <Icon name="user" size={17} />
+              <input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="How teammates see you" />
+            </span>
+          </label>
+          {needCode && (
+            <label className="lf">
+              <span className="lf-label">Team access code</span>
+              <span className="lf-box">
+                <Icon name="lock" size={17} />
+                <input type="password" required autoComplete="current-password" value={code}
+                  onChange={(e) => setCode(e.target.value)} placeholder="Ask your team lead" />
+              </span>
+            </label>
+          )}
+        </div>
+        {err && <div className="login-err"><Icon name="alert" size={15} />{err}</div>}
+        <button className="btn btn-primary login-btn" type="submit" disabled={busy || !email}>
+          {busy ? <span className="spinner" /> : null}{busy ? "Signing in…" : "Continue"}
+          {!busy && <Icon name="arrowRight" size={16} />}
         </button>
       </form>
     </div>
