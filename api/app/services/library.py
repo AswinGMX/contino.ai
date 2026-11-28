@@ -41,6 +41,10 @@ def sync_library(repo: Repo, plan: Plan) -> None:
             repo.s.delete(repo.pid, "library", item.id)
 
 
+def _asset_kind(item: LibraryItem) -> str:
+    return {"character": "character", "reaction": "expression", "location": "place"}[item.kind]
+
+
 def _key(repo: Repo, item: LibraryItem, n: int) -> str:
     name = slugify(item.name)
     if item.kind == "character":
@@ -87,7 +91,7 @@ def upload(ctx: Ctx, repo: Repo, item_id: str, data: bytes) -> LibraryItem:
         raise GateError("invalid_image", str(exc)) from exc
     n = (item.current.n + 1) if item.current else 1
     key = _key(repo, item, n)
-    ctx.storage.put_image(key, png)
+    repo.put_asset(key, png, kind=_asset_kind(item), item_id=item.id, version=n, source="uploaded")
 
     def fn(cur: LibraryItem | None) -> LibraryItem | None:
         assert cur is not None
@@ -186,7 +190,7 @@ def run_generate(ctx: Ctx, repo: Repo, item_id: str, comment: str, quality: str,
     fresh = repo.item(item_id)
     n = (fresh.current.n + 1) if fresh.current else 1
     key = _key(repo, fresh, n)
-    ctx.storage.put_image(key, img)
+    repo.put_asset(key, img, kind=_asset_kind(fresh), item_id=fresh.id, version=n)
 
     def fn(cur: LibraryItem | None) -> LibraryItem | None:
         assert cur is not None
@@ -271,12 +275,12 @@ def run_reaction_sheet(ctx: Ctx, repo: Repo, character_id: str, item_ids: list[s
                               size=ctx.cfg.image.request_size, quality=quality)
         crops = imaging.crop_grid(sheet, cols, rows, len(chunk))
         sheet_key = repo.image_key("library", "sheets", f"{slugify(base.name)}_{job_id or 'sheet'}_{start // per + 1}.png")
-        ctx.storage.put_image(sheet_key, imaging.to_png(imaging.open_image(sheet)))
+        repo.put_asset(sheet_key, imaging.to_png(imaging.open_image(sheet)), kind="sheet", item_id=char_item_id(character_id))
         for it, png in zip(chunk, crops):
             fresh = repo.item(it.id)
             n = (fresh.current.n + 1) if fresh.current else 1
             key = _key(repo, fresh, n)
-            ctx.storage.put_image(key, png)
+            repo.put_asset(key, png, kind="expression", item_id=fresh.id, version=n)
             v = ImageVersion(n=n, image_key=key, source="sheet", comment=comment, quality=quality,
                              refs_used={base.id: bv.n})
             repo.mutate_item(it.id, lambda cur, v=v: cur.model_copy(update={

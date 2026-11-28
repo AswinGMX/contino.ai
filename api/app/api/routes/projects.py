@@ -14,7 +14,6 @@ from ...services import finals, library, planner, storyboard, usage
 from ...services.context import Ctx, get_ctx
 from ...services.gates import GateError
 from ...services.repo import NotFound, Repo
-from ...storage.local import LocalStorage
 from .. import views
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -28,13 +27,23 @@ def ctx_dep() -> Ctx:
     return get_ctx()
 
 
-def repo_dep(project_id: str, ctx: Ctx = Depends(ctx_dep)) -> Repo:
-    repo = ctx.repo(project_id)
+def user_dep(request: Request) -> str:
+    """The signed-in user's email (set by the auth middleware)."""
+    email = getattr(request.state, "user_email", None)
+    if not email:
+        raise GateError("signed_out", "Sign in with your email.")
+    return email
+
+
+def repo_dep(project_id: str, ctx: Ctx = Depends(ctx_dep), user: str = Depends(user_dep)) -> Repo:
+    """A project the signed-in user owns. Anyone else's project looks exactly like a missing one (404)."""
     try:
-        repo.project()
-    except (NotFound, ValueError):
-        raise NotFound(f"project {project_id}") from None
-    return repo
+        owner = ctx.storage.project_owner(project_id)
+    except ValueError:
+        owner = None
+    if owner is None or owner != user:
+        raise NotFound(f"project {project_id}")
+    return ctx.repo(project_id)
 
 
 async def _read_limited(file: UploadFile, limit: int) -> bytes:
@@ -66,9 +75,9 @@ class RenderIn(BaseModel):
 # ------------------------------------------------------------------ projects & plan
 
 @router.get("")
-def list_projects(ctx: Ctx = Depends(ctx_dep)):
+def list_projects(ctx: Ctx = Depends(ctx_dep), user: str = Depends(user_dep)):
     out = []
-    for pid in ctx.storage.list_projects():
+    for pid in ctx.storage.list_projects(owner_email=user):
         try:
             out.append(views.project_overview(ctx, ctx.repo(pid)))
         except NotFound:
@@ -77,9 +86,9 @@ def list_projects(ctx: Ctx = Depends(ctx_dep)):
 
 
 @router.post("", status_code=201)
-async def create_project(file: UploadFile = File(...), ctx: Ctx = Depends(ctx_dep)):
+async def create_project(file: UploadFile = File(...), ctx: Ctx = Depends(ctx_dep), user: str = Depends(user_dep)):
     data = await _read_limited(file, MAX_PDF_UPLOAD)
-    project = await run_in_threadpool(planner.create_project, ctx, file.filename or "planner.pdf", data)
+    project = await run_in_threadpool(planner.create_project, ctx, file.filename or "planner.pdf", data, user)
     return project.model_dump(mode="json", by_alias=True)
 
 
@@ -93,6 +102,12 @@ def delete_project(repo: Repo = Depends(repo_dep), ctx: Ctx = Depends(ctx_dep)):
     """Delete a project's records and images. Money already spent stays counted in the budget."""
     ctx.storage.delete_project(repo.pid)
     return Response(status_code=204)
+
+
+@router.get("/{project_id}/assets")
+def list_assets(repo: Repo = Depends(repo_dep)):
+    """Every stored file of the project (input, pictures, versions, boards, finals, exports)."""
+    return [{**a, "url": views.img_url(repo.pid, a["storage_key"])} for a in repo.assets()]
 
 
 @router.get("/{project_id}/plan")
@@ -295,8 +310,9 @@ def get_image(rest: str, request: Request, repo: Repo = Depends(repo_dep), ctx: 
     url = ctx.storage.image_url(key, expires=300)
     if url:
         return RedirectResponse(url, status_code=302, headers={"Cache-Control": "private, max-age=240"})
-    if isinstance(ctx.storage, LocalStorage):
-        path = ctx.storage.local_image_path(key)
+    local_path = getattr(ctx.storage, "local_image_path", None)   # the test double serves files from disk
+    if local_path:
+        path = local_path(key)
         if not path.exists():
             raise NotFound("image")
         return FileResponse(path, headers=cache)

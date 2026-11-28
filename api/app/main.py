@@ -7,7 +7,6 @@ Postgres + R2), so every process is stateless and horizontally scalable.
 """
 from __future__ import annotations
 
-import hmac
 import logging
 import sys
 import time
@@ -25,6 +24,7 @@ from .api.routes import projects, system
 from .config import ROOT_DIR, ConfigError, get_config, get_settings
 from .jobs.queue import Worker
 from .logging_setup import correlation_id, log, setup_logging
+from .services import auth
 from .services.context import get_ctx
 
 logger = logging.getLogger("app")
@@ -49,7 +49,8 @@ async def lifespan(app: FastAPI):
     ctx = get_ctx()
     ctx.storage.healthcheck()
     worker = None
-    if ctx.settings.embedded_worker:
+    # A serverless function is frozen between requests: jobs run on a separate always-on worker instead.
+    if ctx.settings.embedded_worker and not ctx.settings.serverless:
         worker = Worker(ctx.storage, ctx.cfg.jobs.workers, ctx.cfg.jobs.poll_interval_seconds,
                         ctx.cfg.jobs.lease_seconds)
         worker.start()
@@ -78,13 +79,11 @@ def create_app() -> FastAPI:
         token = correlation_id.set(rid)
         t0 = time.monotonic()
         try:
-            if settings.api_token and request.url.path.startswith("/api/") and \
-                    not request.url.path.startswith(PUBLIC_PATHS):
-                supplied = request.cookies.get(system.COOKIE) or \
-                    request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-                if not supplied or not hmac.compare_digest(supplied.encode(), settings.api_token.encode()):
-                    return JSONResponse(status_code=401, content={
-                        "error": {"code": "unauthorized", "message": "Sign in with the access token."}})
+            request.state.user_email = auth.verify(settings, request.cookies.get(auth.COOKIE))
+            if request.url.path.startswith("/api/") and not request.url.path.startswith(PUBLIC_PATHS) \
+                    and request.method != "OPTIONS" and not request.state.user_email:
+                return JSONResponse(status_code=401, content={
+                    "error": {"code": "signed_out", "message": "Sign in with your email."}})
             response = await call_next(request)
             response.headers["x-request-id"] = rid
             if "/images/" not in request.url.path:  # image hits are high-volume and cacheable
@@ -95,13 +94,20 @@ def create_app() -> FastAPI:
             correlation_id.reset(token)
 
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True,
-                       allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list,
+                       allow_origin_regex=settings.cors_origin_regex or None, allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"], expose_headers=["Content-Disposition", "x-request-id"])
+    # Single-container deploys: serve the built web app if present.
+    dist = ROOT_DIR / "web" / "dist"
     app.include_router(system.router)
     app.include_router(projects.router)
 
-    # Single-container deploys: serve the built web app if present.
-    dist = ROOT_DIR / "web" / "dist"
+    @app.get("/", include_in_schema=False)
+    def root():
+        if dist.exists():
+            return FileResponse(Path(dist) / "index.html")
+        return {"service": "contino.ai API", "status": "running", "health": "/api/healthz", "docs": "/docs"}
+
     if dist.exists():
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):

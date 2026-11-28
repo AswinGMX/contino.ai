@@ -1,5 +1,5 @@
-# Local:  docker compose up --build            (STORAGE_MODE=local, data in ./data)
-# Cloud:  STORAGE_MODE=cloud in .env + DATABASE_URL/R2_* ; scale workers with
+# docker compose up --build   (needs DATABASE_URL, R2_* and SESSION_SECRET in .env)
+# Scale image workers with:
 #         docker compose up --scale worker=4
 services:
   api:

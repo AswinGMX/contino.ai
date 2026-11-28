@@ -11,10 +11,30 @@ export class ApiError extends Error {
   }
 }
 
+// API location. Empty in local dev (Vite proxies /api to :8000); in production set VITE_API_URL to the
+// backend's public URL, e.g. https://contino-api.vercel.app (no trailing slash).
+export const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/+$/, "");
+
+/** Prefix an API path (e.g. "/api/projects/x/images/y.png") with the backend URL. */
+export const apiUrl = (path: string) => (API_BASE && path.startsWith("/api/") ? API_BASE + path : path);
+
+/** The API returns image and download links as "/api/..." paths; point them at the backend. */
+function absolutize<T>(value: T): T {
+  if (!API_BASE) return value;
+  if (typeof value === "string") return (value.startsWith("/api/") ? API_BASE + value : value) as T;
+  if (Array.isArray(value)) return value.map(absolutize) as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = absolutize(v);
+    return out as T;
+  }
+  return value;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const res = await fetch(path, { ...init, headers, credentials: "include" });
+  const res = await fetch(apiUrl(path), { ...init, headers, credentials: "include" });
   if (!res.ok) {
     let code = "http_error";
     let message = `${res.status} ${res.statusText}`;
@@ -25,7 +45,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch { /* not JSON */ }
     throw new ApiError(res.status, code, message);
   }
-  return res.status === 204 ? (undefined as T) : res.json();
+  return res.status === 204 ? (undefined as T) : absolutize(await res.json());
 }
 
 const enc = encodeURIComponent;
@@ -40,7 +60,7 @@ export interface Budget {
 }
 export interface Project {
   id: string; title: string; created_at: number; source_filename: string;
-  parse_status: "pending" | "parsing" | "done" | "failed"; parse_error: string;
+  parse_status: "pending" | "parsing" | "done" | "failed"; parse_error: string; parse_started_at?: number;
 }
 export interface Overview {
   project: Project;
@@ -60,7 +80,7 @@ export interface Shot {
   reactions: ShotReaction[]; framing: string; time_of_day: string; props: string[]; notes: string;
 }
 export interface Scene { id: string; title: string; shots: Shot[] }
-export type CharacterKind = "person" | "animal" | "creature" | "group" | "effect";
+export type CharacterKind = "person" | "animal" | "creature" | "object" | "group" | "effect";
 export interface Character { id: string; name: string; description: string; reactions: string[]; kind?: CharacterKind | "" }
 export interface Location { id: string; name: string; description: string }
 export interface Plan { title: string; style: string; characters: Character[]; locations: Location[]; scenes: Scene[] }
@@ -129,8 +149,9 @@ export interface UsageView {
   calls: UsageCall[];
   budget: Budget;
 }
+export interface User { email: string; name: string }
 export interface PublicConfig {
-  storage_mode: string; auth_required: boolean;
+  storage_mode: string; access_code_required: boolean;
   models: { image: string; text: string; vision: string };
 }
 
@@ -141,7 +162,10 @@ const P = (pid: string) => `/api/projects/${enc(pid)}`;
 export const api = {
   config: () => request<PublicConfig>("/api/config"),
   budget: () => request<Budget>("/api/budget"),
-  login: (token: string) => post<{ ok: boolean }>("/api/auth/login", { token }),
+  me: () => request<{ user: User }>("/api/auth/me"),
+  login: (email: string, name: string, accessCode: string) =>
+    post<{ user: User; claimed_projects: number }>("/api/auth/login", { email, name, access_code: accessCode }),
+  logout: () => post<{ ok: boolean }>("/api/auth/logout"),
 
   projects: () => request<Overview[]>("/api/projects"),
   createProject: (file: File) => {
@@ -195,9 +219,9 @@ export const api = {
   retryFinal: (pid: string, shot: string) => post(`${P(pid)}/finals/${enc(shot)}/retry`, {}),
 
   usage: (pid: string) => request<UsageView>(`${P(pid)}/usage`),
-  usageCsvUrl: (pid: string) => `${P(pid)}/usage.csv`,
+  usageCsvUrl: (pid: string) => apiUrl(`${P(pid)}/usage.csv`),
   exportOutputs: (pid: string) => post<{ path: string; written: Record<string, number> }>(`${P(pid)}/export`),
-  exportZipUrl: (pid: string) => `${P(pid)}/export.zip`,
+  exportZipUrl: (pid: string) => apiUrl(`${P(pid)}/export.zip`),
 };
 
 export const BUSY: Status[] = ["generating", "in_review"];

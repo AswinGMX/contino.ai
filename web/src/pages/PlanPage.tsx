@@ -71,6 +71,8 @@ export default function PlanPage({ pid }: { pid: string }) {
         <NextBar step={1} icon="list" title="Check what we read from your PDF, then approve it"
           text={<>We found <b>{plan.characters.length} characters</b>, <b>{plan.locations.length} places</b> and <b>{nShots} shots</b>. Fix anything wrong with the pencil icons, then approve.</>}>
           {v.source_url && <a className="btn" href={v.source_url} target="_blank" rel="noreferrer"><Icon name="file" size={15} />Open PDF</a>}
+          <ActionButton kind="text" icon="refresh" title="Read the PDF again from scratch (about 10¢)"
+            onClick={async () => { await api.reparse(pid); toast.info("Reading the PDF again"); refresh(); }}>Read again</ActionButton>
           <ActionButton kind="primary" icon="check" onClick={async () => { await api.approvePlan(pid); toast.ok("Plan approved"); refresh(); }}>Approve the plan</ActionButton>
         </NextBar>
       )}
@@ -111,7 +113,7 @@ export default function PlanPage({ pid }: { pid: string }) {
                         <div className="grow1 vstack" style={{ gap: 3 }}>
                           <span className="faint small" style={{ fontWeight: 600 }}>{[sh.framing, locName(sh.location_id), sh.time_of_day].filter(Boolean).join(" · ") || sh.id}</span>
                           <span>{sh.action}</span>
-                          {sh.dialogue && <span className="dialogue small">“{sh.dialogue}”</span>}
+                          {sh.dialogue && <span className="dialogue small">“{cleanDialogue(sh.dialogue)}”</span>}
                           {sh.character_ids.length > 0 && (
                             <div className="hstack" style={{ gap: 4, marginTop: 2 }}>
                               {sh.character_ids.map((cid) => {
@@ -133,6 +135,11 @@ export default function PlanPage({ pid }: { pid: string }) {
           </section>
 
           <div className="stack pane-scroll">
+            <section className="card card-pad stack" style={{ gap: 8 }}>
+              <StylePicker value={plan.style} hasPictures={!!lib.data?.characters.some((g) => g.base?.versions.length)}
+                onChange={(style) => edit((p) => { p.style = style; })} />
+              <button className="btn btn-text btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => setRaw(JSON.stringify(plan, null, 2))}>Edit as JSON (advanced)</button>
+            </section>
             <section className="card">
               <div className="card-head">
                 <h3 className="section-title">Characters <span className="faint" style={{ fontWeight: 500 }}>· {plan.characters.length}</span></h3>
@@ -171,12 +178,6 @@ export default function PlanPage({ pid }: { pid: string }) {
                 ))}
               </div>
             </section>
-            <section className="card card-pad stack" style={{ gap: 8 }}>
-              <label className="field">Visual style for every image
-                <AutoTextarea minRows={2} value={plan.style} placeholder="e.g. warm, hand-painted animation" onChange={(e) => edit((p) => { p.style = e.target.value; })} />
-              </label>
-              <button className="btn btn-text btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => setRaw(JSON.stringify(plan, null, 2))}>Edit as JSON (advanced)</button>
-            </section>
           </div>
         </div>
       )}
@@ -191,6 +192,24 @@ export default function PlanPage({ pid }: { pid: string }) {
             if (openEntity.kind === "char") next.characters[openEntity.index].kind = kind as CharacterKind;
             await save(next);
             setOpenEntity(null);
+          }}
+          onRemove={async () => {
+            // Remove a character or place from the plan and from every shot that used it.
+            const next = structuredClone(plan);
+            if (openEntity.kind === "char") {
+              const id = next.characters[openEntity.index].id;
+              next.characters.splice(openEntity.index, 1);
+              for (const sc of next.scenes) for (const sh of sc.shots) {
+                sh.character_ids = sh.character_ids.filter((c) => c !== id);
+                sh.reactions = sh.reactions.filter((r) => r.character_id !== id);
+              }
+            } else {
+              const id = next.locations[openEntity.index].id;
+              next.locations.splice(openEntity.index, 1);
+              for (const sc of next.scenes) for (const sh of sc.shots) if (sh.location_id === id) sh.location_id = "";
+            }
+            await save(next);
+            setOpenEntity(null);
           }} />
       )}
     </>
@@ -199,14 +218,16 @@ export default function PlanPage({ pid }: { pid: string }) {
 
 type EntityTarget = { kind: "char" | "loc"; index: number };
 
-function EntityModal({ plan, lib, target, approved, onClose, onSave }: {
+function EntityModal({ plan, lib, target, approved, onClose, onSave, onRemove }: {
   plan: Plan; lib?: LibraryView; target: EntityTarget; approved: boolean;
   onClose: () => void; onSave: (name: string, description: string, kind: string) => Promise<void>;
+  onRemove: () => Promise<void>;
 }) {
   const isChar = target.kind === "char";
   const entity = isChar ? plan.characters[target.index] : plan.locations[target.index];
   const [name, setName] = useState(entity.name);
   const [desc, setDesc] = useState(entity.description);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [kind, setKind] = useState<string>(isChar ? ((entity as Plan["characters"][number]).kind || "creature") : "");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -258,6 +279,7 @@ function EntityModal({ plan, lib, target, approved, onClose, onSave }: {
                   <option value="person">A person</option>
                   <option value="animal">An animal</option>
                   <option value="creature">A creature (talking animal, insect, fantasy being)</option>
+                  <option value="object">An object (paper boat, letter, toy)</option>
                   <option value="group">A group (crowd, flock, swarm)</option>
                   <option value="effect">An effect (lights, glow, magic, weather)</option>
                 </select>
@@ -285,6 +307,19 @@ function EntityModal({ plan, lib, target, approved, onClose, onSave }: {
           </div>
         </div>
         <div className="modal-foot">
+          <span style={{ marginRight: "auto" }}>
+            {confirmRemove ? (
+              <span className="hstack" style={{ gap: 6 }}>
+                <span className="small err-text">Remove {entity.name} from every shot?</span>
+                <ActionButton kind="danger" size="sm" icon="trash" onClick={onRemove}>Remove</ActionButton>
+                <button className="btn btn-text btn-sm" onClick={() => setConfirmRemove(false)}>Keep</button>
+              </span>
+            ) : (
+              <button className="btn btn-text btn-sm" style={{ color: "var(--err)" }} onClick={() => setConfirmRemove(true)}>
+                <Icon name="trash" size={14} />Remove from plan
+              </button>
+            )}
+          </span>
           <button className="btn" onClick={onClose}>Cancel</button>
           <ActionButton kind="primary" icon="check" disabled={!dirty || !name.trim()} onClick={() => onSave(name.trim(), desc, kind)}>Save</ActionButton>
         </div>
@@ -306,10 +341,11 @@ function ShotEditor({ shot, onChange, onDone }: { shot: Shot; onChange: (fn: (s:
 }
 
 function ParsingScreen({ pid }: { pid: string }) {
-  const ov = useQuery({ queryKey: ["overview", pid], queryFn: () => api.overview(pid) });
+  const ov = useQuery({ queryKey: ["overview", pid], queryFn: () => api.overview(pid), refetchInterval: 3000 });
   const [secs, setSecs] = useState(0);
   useEffect(() => {
-    const t0 = Date.now() - (ov.data ? Math.max(0, Date.now() / 1000 - ov.data.project.created_at) * 1000 : 0);
+    const started = ov.data ? (ov.data.project.parse_started_at ?? ov.data.project.created_at) : Date.now() / 1000;
+    const t0 = Date.now() - Math.max(0, Date.now() / 1000 - started) * 1000;
     const id = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 1000);
     return () => clearInterval(id);
   }, [ov.data]);
@@ -380,4 +416,51 @@ function ParsingScreen({ pid }: { pid: string }) {
       </div>
     </>
   );
+}
+
+// Looks described in plain words (no studio names): image models follow these more reliably.
+const STYLE_PRESETS: { id: string; label: string; style: string }[] = [
+  { id: "3d", label: "3D animated film",
+    style: "3D animated feature-film look: soft rounded shapes, expressive faces with big eyes, smooth stylised textures, warm cinematic lighting and rich colour." },
+  { id: "classic", label: "Classic hand-drawn animation",
+    style: "Classic hand-drawn 2D animation: clean expressive ink lines, painted watercolour-like backgrounds, gentle warm colours, storybook charm." },
+  { id: "anime", label: "Anime",
+    style: "Anime style: clean line art, cel shading, large expressive eyes, vivid skies, detailed painted backgrounds and soft light." },
+  { id: "cartoon", label: "Cartoon",
+    style: "Bright cartoon style: bold outlines, simple shapes, flat vibrant colours, playful exaggerated poses and expressions." },
+  { id: "watercolour", label: "Watercolour storybook",
+    style: "Hand-painted watercolour storybook illustration: soft washes, visible paper texture, delicate ink outlines, gentle pastel light." },
+  { id: "comic", label: "Comic book",
+    style: "Comic-book illustration: confident ink lines, halftone shading, strong shadows, saturated colours and dynamic framing." },
+  { id: "clay", label: "Claymation",
+    style: "Stop-motion claymation look: handmade clay characters with fingerprint texture, miniature sets, soft studio lighting, slight imperfections." },
+  { id: "realistic", label: "Realistic film",
+    style: "Realistic cinematic film still: natural proportions, true-to-life materials, soft natural lighting, shallow depth of field." },
+  { id: "sketch", label: "Pencil sketch",
+    style: "Pencil sketch storyboard: graphite lines, light cross-hatching, minimal grey tones on off-white paper." },
+];
+
+function StylePicker({ value, onChange, hasPictures }: { value: string; onChange: (s: string) => void; hasPictures: boolean }) {
+  const current = STYLE_PRESETS.find((p) => p.style === value.trim())?.id ?? "custom";
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <label className="field">Visual style for every image
+        <select value={current} style={{ width: "100%" }}
+          onChange={(e) => { const p = STYLE_PRESETS.find((x) => x.id === e.target.value); if (p) onChange(p.style); }}>
+          {STYLE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          <option value="custom">{current === "custom" && value ? "Custom (from your PDF or typed)" : "Custom (type your own)"}</option>
+        </select>
+      </label>
+      <AutoTextarea minRows={2} value={value} aria-label="Style description" placeholder="Describe the look, e.g. warm, hand-painted animation"
+        onChange={(e) => onChange(e.target.value)} />
+      {hasPictures && (
+        <span className="faint small">Pictures already made keep their old style. To switch styles, use Start over on them after saving.</span>
+      )}
+    </div>
+  );
+}
+
+/** Remove quote marks the PDF already put around a line, so the UI doesn't show them twice. */
+function cleanDialogue(text: string) {
+  return text.replace(/["“”]/g, "").replace(/\s+/g, " ").trim();
 }

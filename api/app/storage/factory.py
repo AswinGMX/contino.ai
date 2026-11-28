@@ -10,14 +10,11 @@ _guard = threading.Lock()
 
 
 def build_storage(settings: Settings) -> Storage:
-    if settings.storage_mode == "local":
-        from .local import LocalStorage
-        return LocalStorage(settings.data_dir)
-    if settings.storage_mode == "cloud":
-        from .cloud import CloudStorage
-        return CloudStorage(settings.database_url, settings.r2_account_id, settings.r2_access_key_id,
-                            settings.r2_secret_access_key, settings.r2_bucket)
-    raise ValueError(f"unknown STORAGE_MODE {settings.storage_mode!r}")
+    """PostgreSQL for data, Cloudflare R2 for files. (The JSON-file storage in local.py is a test double.)"""
+    from .cloud import CloudStorage
+    return CloudStorage(settings.database_url, settings.r2_account_id, settings.r2_access_key_id,
+                        settings.r2_secret_access_key, settings.r2_bucket,
+                        pool_min=settings.db_pool_min, pool_max=settings.db_pool_max)
 
 
 def get_storage() -> Storage:

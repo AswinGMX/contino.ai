@@ -131,9 +131,24 @@ class Repo:
     def usage(self) -> list[UsageRecord]:
         return sorted(self._list(UsageRecord, "usage"), key=lambda u: u.time)
 
-    # -------------------------------------------------------------- images
+    # -------------------------------------------------------------- files (bytes in storage, row in the catalogue)
     def image_key(self, *parts: str) -> str:
         return "/".join(("projects", self.pid, *parts))
+
+    def put_asset(self, key: str, data: bytes, *, kind: str, item_id: str = "", version: int | None = None,
+                  content_type: str = "image/png", source: str = "generated") -> str:
+        """Store a file (R2 in cloud mode) and record it in the assets catalogue (Postgres in cloud mode)."""
+        import hashlib
+        import time as _time
+        self.s.put_image(key, data, content_type)
+        self.s.add_asset(self.pid, {
+            "storage_key": key, "kind": kind, "item_id": item_id, "version": version, "content_type": content_type,
+            "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "source": source, "created_at": _time.time(),
+        })
+        return key
+
+    def assets(self) -> list[dict]:
+        return self.s.list_assets(self.pid)
 
 
 _COLL = {Project: "project", PlanRecord: "plan", LibraryItem: "library", Panel: "panels", Board: "boards",

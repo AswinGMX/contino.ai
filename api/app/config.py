@@ -1,14 +1,14 @@
 """Settings: secrets from .env, tunables from config.yaml.
 
-Startup validation is strict: if the chosen STORAGE_MODE is missing settings,
-the process stops with a clear message. Modes are never switched silently.
+All data lives in PostgreSQL and every file in Cloudflare R2. Startup validation is
+strict: if any required setting is missing, the process stops with a clear message.
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from typing import ClassVar
 from pathlib import Path
-from typing import Literal
-
 import yaml
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,9 +25,9 @@ class Settings(BaseSettings):
         env_file=(ROOT_DIR / ".env", ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
-    storage_mode: Literal["local", "cloud"] = "local"
     openai_api_key: str = ""
-    api_token: str = ""
+    api_token: str = ""              # optional team access code required to sign in
+    session_secret: str = ""         # signs sign-in cookies (required)
     embedded_worker: bool = True
     cors_origins: str = "http://localhost:5173"
     log_level: str = "INFO"
@@ -43,8 +43,15 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket: str = ""
 
+    # Deployment
+    cookie_cross_site: bool = False   # true when frontend and API are on different domains (e.g. two Vercel projects)
+    cors_origin_regex: str = ""       # e.g. https://contino-.*\.vercel\.app to allow Vercel preview URLs
+    db_pool_min: int = 4     # connections kept open and ready (each new one costs several round trips)
+    db_pool_max: int = 20    # enough for the job workers plus page refreshes, so nobody queues
+
     data_dir: Path = ROOT_DIR / "data"
-    output_dir: Path = ROOT_DIR / "output"
+    # Serverless platforms only allow writing to /tmp.
+    output_dir: Path = Path("/tmp/output") if os.environ.get("VERCEL") else ROOT_DIR / "output"
     prompts_dir: Path = ROOT_DIR / "prompts"
     config_file: Path = ROOT_DIR / "config.yaml"
 
@@ -52,18 +59,27 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    @property
+    def serverless(self) -> bool:
+        return bool(os.environ.get("VERCEL"))
+
+    @property
+    def storage_mode(self) -> str:
+        return "cloud"   # PostgreSQL + Cloudflare R2 (the only mode)
+
+    REQUIRED: ClassVar[tuple[str, ...]] = ("openai_api_key", "session_secret", "database_url", "r2_account_id", "r2_access_key_id",
+                "r2_secret_access_key", "r2_bucket")
+
+    def missing_settings(self) -> list[str]:
+        return [name.upper() for name in self.REQUIRED if not str(getattr(self, name) or "").strip()]
+
     def validate_for_mode(self) -> None:
-        missing: list[str] = []
-        if not self.openai_api_key:
-            missing.append("OPENAI_API_KEY")
-        if self.storage_mode == "cloud":
-            for name in ("database_url", "r2_account_id", "r2_access_key_id", "r2_secret_access_key", "r2_bucket"):
-                if not getattr(self, name):
-                    missing.append(name.upper())
+        missing = self.missing_settings()
         if missing:
             raise ConfigError(
-                f"STORAGE_MODE={self.storage_mode} is missing required settings: {', '.join(missing)}. "
-                "Set them in .env (see .env.example). The app will not switch modes on its own."
+                f"Missing required settings: {', '.join(missing)}. Set them in .env (see .env.example). "
+                "contino.ai stores data in PostgreSQL and files in Cloudflare R2. "
+                "Run `python -m app.check` from api/ to test the connections."
             )
 
 

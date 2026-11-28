@@ -1,4 +1,5 @@
-"""Local mode: JSON files in data/, images in folders.
+"""JSON-file storage used by the automated tests (no database needed). Not selectable at runtime:
+the app always runs on PostgreSQL + Cloudflare R2 (cloud.py).
 
 Every write goes through one path: take a cross-process file lock, read, apply,
 write a temporary file, fsync, then atomically rename. Parallel jobs (threads or
@@ -32,6 +33,8 @@ FILES = {
     "usage": "usage_log.json",
     "budget": "budget.json",
     "jobs": "jobs.json",
+    "users": "users.json",
+    "assets": "assets.json",
 }
 
 
@@ -137,11 +140,65 @@ class LocalStorage(Storage):
             if data.get(collection, {}).pop(rid, None) is not None:
                 self._write(path, data)
 
-    def list_projects(self):
+    def list_projects(self, owner_email=None):
         root = self.data_dir / "projects"
         if not root.exists():
             return []
-        return sorted(p.name for p in root.iterdir() if p.is_dir())
+        out = []
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            meta = self.get(d.name, "project", "meta")
+            if meta is None:
+                continue
+            if owner_email is not None and meta.get("owner_email", "") != owner_email:
+                continue
+            out.append((meta.get("created_at", 0), d.name))
+        return [pid for _, pid in sorted(out, reverse=True)]
+
+    # ------------------------------------------------------------ users & ownership
+    def upsert_user(self, email, name=""):
+        def fn(cur):
+            now = time.time()
+            u = cur or {"email": email, "name": name, "created_at": now}
+            if name:
+                u["name"] = name
+            u["last_login_at"] = now
+            return u
+        return self.update(GLOBAL, "users", email, fn)
+
+    def get_user(self, email):
+        return self.get(GLOBAL, "users", email)
+
+    def register_project(self, project_id, owner_email, title):
+        def fn(cur):
+            if cur is None:
+                return None
+            cur["owner_email"], cur["title"] = owner_email, title or cur.get("title", "")
+            return cur
+        self.update(project_id, "project", "meta", fn)
+
+    def project_owner(self, project_id):
+        try:
+            meta = self.get(project_id, "project", "meta")
+        except ValueError:
+            return None
+        return None if meta is None else meta.get("owner_email", "")
+
+    def claim_unowned_projects(self, owner_email):
+        n = 0
+        for pid in self.list_projects():
+            if self.project_owner(pid) == "":
+                self.update(pid, "project", "meta", lambda cur: {**cur, "owner_email": owner_email} if cur else None)
+                n += 1
+        return n
+
+    # ------------------------------------------------------------ file catalogue
+    def add_asset(self, project, asset):
+        self.update(project, "assets", asset["storage_key"], lambda _cur: dict(asset))
+
+    def list_assets(self, project):
+        return sorted(self.list(project, "assets"), key=lambda a: a.get("created_at", 0))
 
     def delete_project(self, project):
         _safe(project)

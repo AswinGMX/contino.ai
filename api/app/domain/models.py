@@ -76,7 +76,8 @@ class Scene(BaseModel):
     shots: list[Shot] = Field(default_factory=list)
 
 
-CharacterKind = Literal["person", "animal", "creature", "group", "effect"]
+CharacterKind = Literal["person", "animal", "creature", "object", "group", "effect"]
+_OBJECT_WORDS = ("boat", "letter", "toy", "kite", "ball", "balloon", "box", "lantern", "book", "folded", "paper")
 _GROUP_WORDS = ("hundreds", "dozens", "crowd", "flock", "swarm", "herd", "group of", "many", "villagers", "pack of")
 _EFFECT_WORDS = ("points of light", "glow", "sparkle", "mist", "fog", "light that", "lights", "magic")
 
@@ -98,6 +99,8 @@ def infer_kind(name: str, description: str) -> str:
         return "effect"
     if _has(text, ("boy", "girl", "man", "woman", "child", "elder", "person", "year-old", "villager")):
         return "person"
+    if _has(text, _OBJECT_WORDS) and not _has(text, _BEING_WORDS):
+        return "object"
     return "creature"
 
 
@@ -107,7 +110,7 @@ class Character(BaseModel):
     name: str
     description: str = ""
     reactions: list[str] = Field(default_factory=list)
-    kind: str = ""   # person | animal | creature | group | effect ("" = infer from the description)
+    kind: str = ""   # person | animal | creature | object | group | effect ("" = infer from the description)
 
 
 class Location(BaseModel):
@@ -146,6 +149,18 @@ class Plan(BaseModel):
 
     def normalise(self) -> "Plan":
         """Derive each character's reactions from the shots, dedupe, drop dangling ids."""
+        for c in self.characters:
+            if c.kind not in ("person", "animal", "creature", "object", "group", "effect"):
+                c.kind = infer_kind(c.name, c.description)
+        # Objects and effects have no face: a "mood" given to them becomes a shot note, not an expression picture.
+        faceless = {c.id: c.name for c in self.characters if c.kind in ("object", "effect")}
+        for sc in self.scenes:
+            for sh in sc.shots:
+                for r in [r for r in sh.reactions if r.character_id in faceless]:
+                    note = f"{faceless[r.character_id]} feels {r.emotion} (show it through its movement)."
+                    if note not in sh.notes:
+                        sh.notes = (sh.notes + " " if sh.notes else "") + note
+                sh.reactions = [r for r in sh.reactions if r.character_id not in faceless]
         char_ids = {c.id for c in self.characters}
         loc_ids = {l.id for l in self.locations}
         needed: dict[str, set[str]] = {c.id: set(c.reactions) for c in self.characters}
@@ -160,11 +175,7 @@ class Plan(BaseModel):
                         sh.character_ids.append(r.character_id)
                     needed[r.character_id].add(r.emotion)
         for c in self.characters:
-            c.reactions = sorted(e for e in needed[c.id] if e and e != "neutral")
-            if c.kind not in ("person", "animal", "creature", "group", "effect"):
-                c.kind = infer_kind(c.name, c.description)
-            if c.kind == "effect":
-                c.reactions = []   # lights or weather have no faces, so no expression pictures
+            c.reactions = [] if c.id in faceless else sorted(e for e in needed[c.id] if e and e != "neutral")
         return self
 
 
@@ -179,10 +190,12 @@ class PlanRecord(Record):
 
 class Project(Record):
     id: str
+    owner_email: str = ""            # the user (email = user id) who owns this project
     title: str = ""
     created_at: float = Field(default_factory=now)
     source_filename: str = ""
     parse_status: Literal["pending", "parsing", "done", "failed"] = "pending"
+    parse_started_at: float = Field(default_factory=now)   # when the current PDF read began (for the timer)
     parse_error: str = ""
 
 
