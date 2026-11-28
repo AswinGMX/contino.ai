@@ -1,5 +1,5 @@
-# Backend Vercel project (repo root): ship only the API, prompts and config.
-web/
+# Applies to EVERY Vercel project built from this repo (frontend and backend),
+# so never list web/ here: the frontend project builds from it.
 data/
 output/
 input/
